@@ -141,8 +141,8 @@ testExp5 = List(Atom (W "DEFINE"), List(testExp3, List(testExp4, Nil)))
 
 -- s-expressions utils
 headSExp:: SExp -> SExp
-headSExp Nil = Nil
 headSExp (List(v, l)) = v
+headSExp sxs = sxs
 
 tailSExp:: SExp -> SExp
 tailSExp (List(v, l)) = l
@@ -253,3 +253,16 @@ parse' (x:xs) buff
                | x == ")" = parse' xs (appendSExp (dropFromStack buff isOpenPrn) (List(reverseSExp(takeFromStack (buff) isOpenPrn), Nil)))
                | otherwise = parse' xs (appendSExp buff (List ((Atom (W x)), Nil)))
 parse' [] buff = buff
+
+addA (Atom (N n1))(Atom (N n2)) = Atom(N (addPN n1 n2))
+
+subA (Atom (N n1))(Atom (N n2)) = Atom(N (subPN n1 n2))
+
+mulA (Atom (N n1))(Atom (N n2)) = Atom(N (mulPN n1 n2))
+
+calculate:: SExp -> SExp
+calculate sxs = case headSExp sxs of
+                Atom (N n) -> Atom (N n)
+                Atom (W op) | op == "+" -> addA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
+                            | op == "-" -> subA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
+                            | op == "*" -> mulA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
