@@ -11,7 +11,7 @@ da ==, >, <, *
 da preobrazovanie v stroke b10 i obratno
 da vstroit chisla Pe v s-expressions,
 da s-exp to string
- parser
+da parser
  (+ 1 (* 2 3)i)
 -}
 
@@ -140,29 +140,44 @@ testExp4 = List(Atom (W "CAR"), List(List(Atom (W "CDR"), List(Atom (W "X"),Nil)
 testExp5 = List(Atom (W "DEFINE"), List(testExp3, List(testExp4, Nil)))
 
 -- s-expressions utils
--- lastExp gets last expression from level
-lastSExp:: SExp -> SExp
-lastSExp (Atom a) = Atom a
-lastSExp Nil = Nil
-lastSExp (List (a, Nil)) = a
-lastSExp (List (_, l)) = l
+headSExp:: SExp -> SExp
+headSExp Nil = Nil
+headSExp (List(v, l)) = v
 
-consSExp:: SExp -> SExp -> SExp
-consSExp v (List (Nil, Nil)) = List (v, Nil)
-consSExp v l = List(v, l)
-
-appendSExp:: SExp -> SExp -> SExp
-appendSExp (List (v, Nil)) b = List (v, b)
---zappendSExp a b = consSExp a 
+tailSExp:: SExp -> SExp
+tailSExp (List(v, l)) = l
 
 initSExp:: SExp -> SExp
 initSExp (Atom a) = Atom a
 initSExp Nil = Nil
-initSExp (List (a, Nil)) = List (Nil, Nil)
+initSExp (List (a, Nil)) = Nil
 initSExp (List (a, List(b, Nil))) = List (a, Nil)
 initSExp (List (a, b)) = consSExp a (initSExp b)
 
+lastSExp:: SExp -> SExp
+lastSExp (Atom a) = Atom a
+lastSExp Nil = Nil
+lastSExp (List (a, Nil)) = List(a, Nil)
+lastSExp (List (_, l)) = lastSExp l
+
+consSExp:: SExp -> SExp -> SExp
+consSExp v Nil = List (v, Nil)
+consSExp v l = List(v, l)
+
+appendSExp:: SExp -> SExp -> SExp
+appendSExp Nil b = b
+appendSExp (List (v, Nil)) b = List (v, b)
+appendSExp a b =  consSExp (headSExp a) (appendSExp (tailSExp a) b)
+
+reverseSExp:: SExp -> SExp
+reverseSExp se = reverseSExp' se Nil
+
+reverseSExp':: SExp -> SExp -> SExp
+reverseSExp' Nil buff = buff
+reverseSExp' (List (v,l)) buff = reverseSExp' l (List (v, buff))
+
 sExpToStr:: SExp -> String
+sExpToStr (Atom v) = sExpToStr' (Atom v)
 sExpToStr sexp = "(" ++ (sExpToStr' sexp) 
 
 sExpToStr':: SExp -> String
@@ -171,8 +186,14 @@ sExpToStr' (List(List(v, l2), l1)) = "(" ++ (sExpToStr' (List(v, l2))) ++ (sExpT
 sExpToStr' (List(v, l)) = (sExpToStr' v) ++ (sExpToStr' l)
 sExpToStr' (Atom a) =
                case a of
-               W w -> w
-               N n -> pnToStr n
+               W w -> " " ++ w ++ " "
+               N n -> " " ++ (pnToStr n) ++ " "
+
+isNumber':: String -> Bool
+isNumber' "" = True
+isNumber' (x:xs) 
+         | elem x ['1'..'9'] = isNumber' xs
+         | otherwise = False
 
 -- AST functions
 checkParantheses:: [Char] -> Bool
@@ -183,7 +204,6 @@ checkParantheses' [] y = y == 0
 checkParantheses' ('(':xs) y = checkParantheses' xs (y + 1)
 checkParantheses' (')':xs) y = checkParantheses' xs (y - 1)
 checkParantheses' (x:xs) y = checkParantheses' xs y
-
 
 tokenize::[Char] -> [[Char]]
 tokenize xs = tokenize' xs ""
@@ -202,42 +222,34 @@ tokenize' (x:xs) ys
     | x == ' ' = (reverse ys) : (tokenize' xs "")
     | otherwise = tokenize' xs (x:ys)
 
-isClosedParanthesis:: SExp -> Bool
-isClosedParanthesis (List (Atom (W w), Nil)) = w == ")"
-isClosedParanthesis _ = False
+testParseExp1 = List(Atom(W "("), List(Atom (W "Def"), List(Atom(W ")"), Nil)))
 
-takeFromStack:: SExp -> SExp
-takeFromStack sxs  
-              | isClosedParanthesis . lastSExp $ sxs = List(Nil,Nil)
-              | otherwise = consSExp (lastSExp sxs) (takeFromStack (initSExp sxs))
+isClosedPrn:: SExp -> Bool
+isClosedPrn (Atom (W w)) = w == ")"
+isClosedPrn _ = False
 
-dropFromStack:: SExp -> SExp
-dropFromStack sxs
-              | isClosedParanthesis . lastSExp $ sxs = initSExp sxs
-              | otherwise = dropFromStack  (initSExp sxs)
+isOpenPrn:: SExp -> Bool
+isOpenPrn (Atom (W w)) = w == "("
+isOpenPrn _ = False
 
--- isClosedParanthesis-takeFromStack:: SExp -> SExp 
---takeFromStack (Atom x) = Atom x
---takeFromStack (List (x y)) = show()
-{-
-takeFromStack:: [SExp] -> SExp
-takeFromStack xs
-               | show(last xs) == show(Atom "(") = []
-               | otherwise = (last xs):takeFromStack (init xs) 
+takeFromStack:: SExp -> (SExp -> Bool) -> SExp
+takeFromStack Nil _ = Nil
+takeFromStack sxs f = case lastSExp sxs of
+                      List(v ,_) -> if (f v) then Nil else appendSExp (lastSExp sxs) (takeFromStack (initSExp sxs) f)
+                      _ -> Nil
+               
+dropFromStack:: SExp -> (SExp -> Bool) -> SExp
+dropFromStack Nil _ = Nil
+dropFromStack sxs f = case lastSExp sxs of
+                    List(v, _) -> if (f v) then initSExp sxs else  (dropFromStack (initSExp sxs) f)
+                    _ -> Nil
 
-dropStack:: [SExp] -> SExp
-dropStack xs
-           | show(last xs) == show(Atom "(") = init xs
-           | otherwise = dropStack (init xs)
+parse:: [String] -> SExp
+parse xs = headSExp (parse' xs Nil)
 
-parse:: [[Char]] -> SExp
-parse xs = parse' xs (List (Nil, Nil))
-
-parse':: [[Char]] -> SExp -> SExp
-
-parse' (x:xs) ys
-              | x == ")" = parse' xs ((dropStack ys)++[(List (reverse(takeFromStack ys)))])
-              | otherwise = parse' xs (ys++[(Atom x)]) 
-         
-parse' xs ys = ys
--}
+parse':: [String] -> SExp -> SExp
+parse' (x:xs) buff
+               | isNumber' x = parse' xs (appendSExp buff (List( (Atom (N(strToPN x))), Nil) ))
+               | x == ")" = parse' xs (appendSExp (dropFromStack buff isOpenPrn) (List(reverseSExp(takeFromStack (buff) isOpenPrn), Nil)))
+               | otherwise = parse' xs (appendSExp buff (List ((Atom (W x)), Nil)))
+parse' [] buff = buff
