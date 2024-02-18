@@ -254,10 +254,13 @@ parse' (x:xs) buff
                | otherwise = parse' xs (appendSExp buff (List ((Atom (W x)), Nil)))
 parse' [] buff = buff
 
+addA:: SExp -> SExp -> SExp
 addA (Atom (N n1))(Atom (N n2)) = Atom(N (addPN n1 n2))
 
+subA:: SExp -> SExp -> SExp
 subA (Atom (N n1))(Atom (N n2)) = Atom(N (subPN n1 n2))
 
+mulA:: SExp -> SExp -> SExp
 mulA (Atom (N n1))(Atom (N n2)) = Atom(N (mulPN n1 n2))
 
 calculate:: SExp -> SExp
