@@ -176,6 +176,10 @@ reverseSExp':: SExp -> SExp -> SExp
 reverseSExp' Nil buff = buff
 reverseSExp' (List (v,l)) buff = reverseSExp' l (List (v, buff))
 
+mapSExp:: SExp -> (SExp->SExp) -> SExp
+mapSExp Nil _ = Nil
+mapSExp (List(v,l)) f = List(f v, mapSExp l f)
+
 sExpToStr:: SExp -> String
 sExpToStr (Atom v) = sExpToStr' (Atom v)
 sExpToStr sexp = "(" ++ (sExpToStr' sexp) 
@@ -187,12 +191,12 @@ sExpToStr' (List(v, l)) = (sExpToStr' v) ++ (sExpToStr' l)
 sExpToStr' (Atom a) =
                case a of
                W w -> " " ++ w ++ " "
-               N n -> " " ++ (pnToStr n) ++ " "
+               N n -> " " ++ pnToStr n ++ " "
 
 isNumber':: String -> Bool
 isNumber' "" = True
 isNumber' (x:xs) 
-         | elem x ['1'..'9'] = isNumber' xs
+         | x `elem` ['0'..'9'] = isNumber' xs
          | otherwise = False
 
 -- AST functions
@@ -254,18 +258,60 @@ parse' (x:xs) buff
                | otherwise = parse' xs (appendSExp buff (List ((Atom (W x)), Nil)))
 parse' [] buff = buff
 
-addA:: SExp -> SExp -> SExp
-addA (Atom (N n1))(Atom (N n2)) = Atom(N (addPN n1 n2))
+addOp:: SExp -> SExp -> SExp
+addOp (Atom (N n1)) (Atom (N n2)) = Atom(N (addPN n1 n2))
 
-subA:: SExp -> SExp -> SExp
-subA (Atom (N n1))(Atom (N n2)) = Atom(N (subPN n1 n2))
+subOp:: SExp -> SExp -> SExp
+subOp (Atom (N n1)) (Atom (N n2)) = Atom(N (subPN n1 n2))
 
-mulA:: SExp -> SExp -> SExp
-mulA (Atom (N n1))(Atom (N n2)) = Atom(N (mulPN n1 n2))
+mulOp:: SExp -> SExp -> SExp
+mulOp (Atom (N n1)) (Atom (N n2)) = Atom(N (mulPN n1 n2))
+
+carOp:: SExp -> SExp
+carOp = headSExp 
+
+cdrOp:: SExp -> SExp
+cdrOp = tailSExp
+
+quoteOp:: SExp -> SExp
+quoteOp Nil = Nil
+quoteOp (Atom (W w)) = Atom(W ('\'':w))
+quoteOp (Atom (N pn)) = Atom(W ('\'':pnToStr pn))
+quoteOp (List (v,l))= List(quoteOp v, quoteOp l)
+
+consOp:: SExp -> SExp -> SExp
+consOp = consSExp 
+
+listOp:: SExp -> SExp
+listOp Nil = Nil 
+
+condOp:: SExp -> (SExp -> SExp) -> SExp
+condOp Nil _ = Nil
+condOp (List(cond, l)) calcF | isT . calcF $ cond = calcF . headSExp . tailSExp $ cond
+                             | otherwise = condOp l calcF
+
+isT:: SExp -> Bool
+isT (List( Atom(W "True"),_)) = True
+isT _ = False
 
 calculate:: SExp -> SExp
-calculate sxs = case headSExp sxs of
-                Atom (N n) -> Atom (N n)
-                Atom (W op) | op == "+" -> addA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
-                            | op == "-" -> subA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
-                            | op == "*" -> mulA (calculate . headSExp . tailSExp $ sxs)(calculate . headSExp . tailSExp . tailSExp $ sxs)
+calculate sxs = case sxs of
+  List( Atom (N n),  l) -> List( Atom (N n), l)
+  List( Atom (W ('\'':w)), l) -> List( Atom (W ('\'':w)), l)
+  List( Atom (W "True"), l) -> List( Atom (W "True"), l)
+  List( Atom (W "False"), l) -> List( Atom (W "False"), l)
+  List( Atom (W op), _) | op == "+"    -> addOp arg1 arg2
+                        | op == "-"    -> subOp arg1 arg2
+                        | op == "*"    -> mulOp arg1 arg2
+                        | op == "'" || op == "quote" -> quoteOp arg1 
+                        | op == "car"  -> carOp arg1
+                        | op == "cdr"  -> cdrOp arg1
+                        | op == "cons" -> consOp arg1 arg2
+                        | op == "list" -> mapSExp (tailSExp sxs) calculate
+                        | op == "cond" -> condOp (tailSExp sxs) calculate 
+  a -> a
+  where
+    arg1 = calculate . headSExp . tailSExp $ sxs
+    arg2 = calculate . headSExp . tailSExp . tailSExp $ sxs
+--    rest = tailSExp . tailSExp . tailSExp $ sxs
+
