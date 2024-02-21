@@ -117,14 +117,14 @@ testEnv = (["x","y","z"],[42,13,666])
 
 lookup1:: String -> ([String],[a]) -> [a]
 lookup1 _ ([], _) = []
-lookup1 s ((v:vs), (e:es))
-                        | s == v = (e:es)
+lookup1 s (v:vs, e:es)
+                        | s == v = e:es
                         | otherwise = lookup1 s (vs, es)
 
 assoc::String -> [(String, b)] -> [(String,b)]
 assoc _ [] = []
 assoc s (x:xs)
-         | s == fst x = (x:xs)
+         | s == fst x = x:xs
          | otherwise = assoc s xs
 
 testStr1 = "DEFINE"
@@ -217,8 +217,8 @@ tokenize' "" "" = []
 tokenize' "" ys = (reverse ys):[]
 tokenize' (' ':xs) "" =  tokenize' xs ""
 tokenize' ('\n':xs) "" =  tokenize' xs ""
-tokenize' ('(':xs) "" = "(" : (tokenize' xs "")
-tokenize' (')':xs) "" = ")" : (tokenize' xs "")
+tokenize' ('(':xs) "" = "(" : tokenize' xs ""
+tokenize' (')':xs) "" = ")" : tokenize' xs ""
 tokenize' (x:xs) ys
     | x == '(' = (reverse ys) : "(" : (tokenize' xs "")
     | x == ')' = (reverse ys) : ")" : (tokenize' xs "")
@@ -253,9 +253,9 @@ parse xs = headSExp (parse' xs Nil)
 
 parse':: [String] -> SExp -> SExp
 parse' (x:xs) buff
-               | isNumber' x = parse' xs (appendSExp buff (List( (Atom (N(strToPN x))), Nil) ))
-               | x == ")" = parse' xs (appendSExp (dropFromStack buff isOpenPrn) (List(reverseSExp(takeFromStack (buff) isOpenPrn), Nil)))
-               | otherwise = parse' xs (appendSExp buff (List ((Atom (W x)), Nil)))
+               | isNumber' x = parse' xs (appendSExp buff (List( Atom (N(strToPN x)), Nil) ))
+               | x == ")" = parse' xs (appendSExp (dropFromStack buff isOpenPrn) (List(reverseSExp(takeFromStack buff isOpenPrn), Nil)))
+               | otherwise = parse' xs (appendSExp buff (List (Atom (W x), Nil)))
 parse' [] buff = buff
 
 addOp:: SExp -> SExp -> SExp
@@ -272,12 +272,6 @@ carOp = headSExp
 
 cdrOp:: SExp -> SExp
 cdrOp = tailSExp
-
-quoteOp:: SExp -> SExp
-quoteOp Nil = Nil
-quoteOp (Atom (W w)) = Atom(W ('\'':w))
-quoteOp (Atom (N pn)) = Atom(W ('\'':pnToStr pn))
-quoteOp (List (v,l))= List(quoteOp v, quoteOp l)
 
 consOp:: SExp -> SExp -> SExp
 consOp = consSExp 
@@ -300,18 +294,18 @@ calculate sxs = case sxs of
   List( Atom (W ('\'':w)), l) -> List( Atom (W ('\'':w)), l)
   List( Atom (W "True"), l) -> List( Atom (W "True"), l)
   List( Atom (W "False"), l) -> List( Atom (W "False"), l)
-  List( Atom (W op), _) | op == "+"    -> addOp arg1 arg2
-                        | op == "-"    -> subOp arg1 arg2
-                        | op == "*"    -> mulOp arg1 arg2
-                        | op == "'" || op == "quote" -> quoteOp arg1 
-                        | op == "car"  -> carOp arg1
-                        | op == "cdr"  -> cdrOp arg1
-                        | op == "cons" -> consOp arg1 arg2
-                        | op == "list" -> mapSExp (tailSExp sxs) calculate
-                        | op == "cond" -> condOp (tailSExp sxs) calculate 
+  List( Atom (W op), _) | op == "+"     -> addOp arg1 arg2
+                        | op == "-"     -> subOp arg1 arg2
+                        | op == "*"     -> mulOp arg1 arg2
+                        | op == "quote" -> headSExp . tailSExp $ sxs 
+                        | op == "car"   -> carOp arg1
+                        | op == "cdr"   -> cdrOp arg1
+                        | op == "cons"  -> consOp arg1 arg2
+                        | op == "list"  -> mapSExp (tailSExp sxs) calculate
+                        | op == "cond"  -> condOp (tailSExp sxs) calculate 
   a -> a
   where
     arg1 = calculate . headSExp . tailSExp $ sxs
     arg2 = calculate . headSExp . tailSExp . tailSExp $ sxs
---    rest = tailSExp . tailSExp . tailSExp $ sxs
+
 
