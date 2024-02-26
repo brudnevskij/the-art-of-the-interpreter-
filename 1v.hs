@@ -5,15 +5,6 @@ data A = W String | N PN deriving Show
 data SExp = Atom A | List (SExp, SExp) | Nil deriving Show 
 
 data PN = Z | S PN deriving Show
-{-
-DZ 
-da ==, >, <, *
-da preobrazovanie v stroke b10 i obratno
-da vstroit chisla Pe v s-expressions,
-da s-exp to string
-da parser
- (+ 1 (* 2 3)i)
--}
 
 -- sample PNs
 pn1 = S Z
@@ -23,6 +14,17 @@ pn5 = addPN pn2 pn3
 pn10 = addPN pn5 pn5
 pn100 = mulPN pn10 pn10
 
+{-
+"""
+(
+(define foo (lambda (x y) (+ y x)))
+
+(define bar (lambda (z) (* 2 z)))
+)
+"""
+
+(foo -> (lam ..) bar -> (lam))
+-}
 
 addPN:: PN -> PN -> PN
 addPN Z n = n
@@ -110,28 +112,13 @@ intToPN:: Integer -> PN
 intToPN 0 = Z
 intToPN n = addPN (S Z) (intToPN (n-1))
 
--- Env and ALists
-testAL = [("x",42),("y",13),("z",666)]
-
-testEnv = (["x","y","z"],[42,13,666])
-
-lookup1:: String -> ([String],[a]) -> [a]
-lookup1 _ ([], _) = []
-lookup1 s (v:vs, e:es)
-                        | s == v = e:es
-                        | otherwise = lookup1 s (vs, es)
-
-assoc::String -> [(String, b)] -> [(String,b)]
-assoc _ [] = []
-assoc s (x:xs)
-         | s == fst x = x:xs
-         | otherwise = assoc s xs
-
 testStr1 = "DEFINE"
 testStr2 = "(DEFINE)"
 testStr3 = "(SECOND X)"
 testStr4 = "(CAR (CDR X))"
 testStr5 = "(DEFINE (SECOND X) (CAR (CDR X)))"
+
+--()
 
 testExp1 = Atom (W"DEFINE")
 testExp2 = List (Atom (W "DEFINE"), Nil)
@@ -182,12 +169,12 @@ mapSExp (List(v,l)) f = List(f v, mapSExp l f)
 
 sExpToStr:: SExp -> String
 sExpToStr (Atom v) = sExpToStr' (Atom v)
-sExpToStr sexp = "(" ++ (sExpToStr' sexp) 
+sExpToStr sexp = "(" ++ sExpToStr' sexp
 
 sExpToStr':: SExp -> String
 sExpToStr' Nil = ")"
-sExpToStr' (List(List(v, l2), l1)) = "(" ++ (sExpToStr' (List(v, l2))) ++ (sExpToStr' l1)
-sExpToStr' (List(v, l)) = (sExpToStr' v) ++ (sExpToStr' l)
+sExpToStr' (List(List(v, l2), l1)) = "(" ++ sExpToStr' (List(v, l2)) ++ sExpToStr' l1
+sExpToStr' (List(v, l)) = sExpToStr' v ++ sExpToStr' l
 sExpToStr' (Atom a) =
                case a of
                W w -> " " ++ w ++ " "
@@ -249,7 +236,7 @@ dropFromStack sxs f = case lastSExp sxs of
                     _ -> Nil
 
 parse:: [String] -> SExp
-parse xs = headSExp (parse' xs Nil)
+parse xs = parse' xs Nil
 
 parse':: [String] -> SExp -> SExp
 parse' (x:xs) buff
@@ -279,21 +266,32 @@ consOp = consSExp
 listOp:: SExp -> SExp
 listOp Nil = Nil 
 
-condOp:: SExp -> (SExp -> SExp) -> SExp
-condOp Nil _ = Nil
-condOp (List(cond, l)) calcF | isT . calcF $ cond = calcF . headSExp . tailSExp $ cond
-                             | otherwise = condOp l calcF
+-- change later
+condOp:: SExp -> SExp -> SExp -> SExp
+condOp Nil _ _= Nil
+condOp (List(cond, l)) vars vals | isT  (calculate (headSExp cond) vars vals) = calculate (headSExp . tailSExp $ cond) vars vals
+                                 | otherwise = condOp l vars vals
 
 isT:: SExp -> Bool
-isT (List( Atom(W "True"),_)) = True
+isT (List( Atom(W "true"),_)) = True
 isT _ = False
 
-calculate:: SExp -> SExp
-calculate sxs = case sxs of
+testValsStr = "(d a 3) (d b 4) (d c 5)"
+testVars = driverVars  (parse (tokenize testValsStr)) 
+testVals = driverVals (parse (tokenize testValsStr))
+
+mapCalculate:: SExp -> SExp -> SExp -> SExp
+mapCalculate Nil vars vals = Nil
+mapCalculate (List(v, l)) vars vals = List(calculate v vars vals,  mapCalculate l vars vals)
+
+--((lambda (x) (lambda (y) z) )
+--((lambda (x y) (+ x y)) 1 2)
+calculate:: SExp -> SExp -> SExp -> SExp
+calculate sxs vars vals = case sxs of 
   List( Atom (N n),  l) -> List( Atom (N n), l)
-  List( Atom (W ('\'':w)), l) -> List( Atom (W ('\'':w)), l)
-  List( Atom (W "True"), l) -> List( Atom (W "True"), l)
-  List( Atom (W "False"), l) -> List( Atom (W "False"), l)
+  --List( List( Atom (W "lambda"), l1), l2) = calculate (headSExp l1) (mapSExp l2 (calculate vars vals)) (headSExp . tailSExp $ l1)
+  List( Atom (W "true"), l)  -> List( Atom (W "true"), l)
+  List( Atom (W "false"), l) -> List( Atom (W "false"), l)
   List( Atom (W op), _) | op == "+"     -> addOp arg1 arg2
                         | op == "-"     -> subOp arg1 arg2
                         | op == "*"     -> mulOp arg1 arg2
@@ -301,11 +299,43 @@ calculate sxs = case sxs of
                         | op == "car"   -> carOp arg1
                         | op == "cdr"   -> cdrOp arg1
                         | op == "cons"  -> consOp arg1 arg2
-                        | op == "list"  -> mapSExp (tailSExp sxs) calculate
-                        | op == "cond"  -> condOp (tailSExp sxs) calculate 
+                        | op == "list"  -> mapCalculate (tailSExp sxs) vars vals
+                        | op == "cond"  -> condOp (tailSExp sxs) vars vals 
+  Atom (W v) -> lookup1 vars vals v 
   a -> a
   where
-    arg1 = calculate . headSExp . tailSExp $ sxs
-    arg2 = calculate . headSExp . tailSExp . tailSExp $ sxs
+    arg1 = calculate (headSExp . tailSExp $ sxs) vars vals
+    arg2 = calculate (headSExp . tailSExp . tailSExp $ sxs) vars vals
+
+testProgramProcedures = "(def x 10) (def y 20)"
+testProgram = "cond ((false)(+ 2 2)) ((true)(* x 2))"
+testProgramVars = driverVars . parse . tokenize $ testProgramProcedures
+testProgramVals = driverVals . parse . tokenize $ testProgramProcedures
+testProgramSExp = parse . tokenize $ testProgram
+testCalculate = calculate testProgramSExp testProgramVars testProgramVals
+
+-- (define sq (lambda (x) (* x x)))
+
+getByNSExp:: SExp -> Integer -> SExp
+getByNSExp (List (v,_)) 0 = v
+getByNSExp (List (_,l)) n = getByNSExp l (n-1)
+
+driverVars:: SExp -> SExp
+driverVars (List (v, l)) = consSExp (getByNSExp v 1) (driverVars l)
+driverVars Nil = Nil
+
+driverVals:: SExp -> SExp
+driverVals (List (v,l)) = consSExp (getByNSExp v 2) (driverVals l)
+driverVals Nil = Nil
+
+testEnv = "(def a 10) (def b 20) (def c 15)"
+
+lookup1:: SExp -> SExp -> String -> SExp
+lookup1 Nil _ _ = Nil
+lookup1 (List(Atom(W fn),l1)) (List(v,l2)) s 
+    | fn == s = v
+    | otherwise = lookup1 l1 l2 s
+    
+lookTest = lookup1 (driverVars  (parse (tokenize testEnv))) (driverVals (parse (tokenize testEnv)))
 
 
