@@ -1,4 +1,5 @@
 import Data.Char
+import System.Posix (sigXFSZ)
 
 data A = W String | N PN deriving Show
 
@@ -266,55 +267,84 @@ consOp = consSExp
 listOp:: SExp -> SExp
 listOp Nil = Nil 
 
--- change later
-condOp:: SExp -> SExp -> SExp -> SExp
-condOp Nil _ _= Nil
-condOp (List(cond, l)) vars vals | isT  (calculate (headSExp cond) vars vals) = calculate (headSExp . tailSExp $ cond) vars vals
-                                 | otherwise = condOp l vars vals
-
-isT:: SExp -> Bool
-isT (List( Atom(W "true"),_)) = True
-isT _ = False
-
 testValsStr = "(d a 3) (d b 4) (d c 5)"
 testVars = driverVars  (parse (tokenize testValsStr)) 
 testVals = driverVals (parse (tokenize testValsStr))
 
-mapCalculate:: SExp -> SExp -> SExp -> SExp
-mapCalculate Nil vars vals = Nil
-mapCalculate (List(v, l)) vars vals = List(calculate v vars vals,  mapCalculate l vars vals)
+mapCalculate::SExp -> SExp -> SExp -> SExp -> SExp -> SExp
+mapCalculate Nil _ _ _ _ = Nil
+mapCalculate (List(v,l)) vrs vls lvrs lvls = List(calculate v vrs vls lvrs lvls, mapCalculate l vrs vls lvrs lvls)
 
---((lambda (x) (lambda (y) z) )
---((lambda (x y) (+ x y)) 1 2)
-calculate:: SExp -> SExp -> SExp -> SExp
-calculate sxs vars vals = case sxs of 
-  List( Atom (N n),  l) -> List( Atom (N n), l)
-  --List( List( Atom (W "lambda"), l1), l2) = calculate (headSExp l1) (mapSExp l2 (calculate vars vals)) (headSExp . tailSExp $ l1)
-  List( Atom (W "true"), l)  -> List( Atom (W "true"), l)
-  List( Atom (W "false"), l) -> List( Atom (W "false"), l)
-  List( Atom (W op), _) | op == "+"     -> addOp arg1 arg2
-                        | op == "-"     -> subOp arg1 arg2
-                        | op == "*"     -> mulOp arg1 arg2
-                        | op == "quote" -> headSExp . tailSExp $ sxs 
-                        | op == "car"   -> carOp arg1
-                        | op == "cdr"   -> cdrOp arg1
-                        | op == "cons"  -> consOp arg1 arg2
-                        | op == "list"  -> mapCalculate (tailSExp sxs) vars vals
-                        | op == "cond"  -> condOp (tailSExp sxs) vars vals 
-  Atom (W v) -> lookup1 vars vals v 
-  a -> a
+isT (Atom (W "true")) = True
+isT _ = False
+
+condOp:: SExp -> SExp -> SExp -> SExp -> SExp -> SExp
+condOp Nil _ _ _ _= Nil
+condOp (List(v,l)) vrs vls lvrs lvls
+    | isT condition = result
+    | otherwise = condOp l vrs vls lvrs lvls
   where
-    arg1 = calculate (headSExp . tailSExp $ sxs) vars vals
-    arg2 = calculate (headSExp . tailSExp . tailSExp $ sxs) vars vals
+    condition = calculate (headSExp v) vrs vls lvrs lvls
+    result = calculate (headSExp . tailSExp $ v) vrs vls lvrs lvls
 
-testProgramProcedures = "(def x 10) (def y 20)"
-testProgram = "cond ((false)(+ 2 2)) ((true)(* x 2))"
+calculate:: SExp -> SExp -> SExp -> SExp -> SExp -> SExp
+calculate (Atom v) _ _ _ _ = Atom v
+calculate Nil _ _ _ _ = Nil
+calculate (List (val,link)) vrs vls lvrs lvls = case calculate val vrs vls lvrs lvls of
+    Atom(W "+")      -> addOp arg1 arg2
+    Atom(W "-")      -> subOp arg1 arg2
+    Atom(W "*")      -> mulOp arg1 arg2
+    Atom(W "quote")  -> headSExp link
+    Atom(W "car")    -> carOp arg1
+    Atom(W "cdr")    -> cdrOp arg1
+    Atom(W "cons")   -> consOp arg1 arg2
+    Atom(W "list")   -> mapCalculate link vrs vls lvrs lvls
+    Atom(W "cond")   -> condOp link vrs vls lvrs lvls
+    Atom(W v)        -> case lookup1 vrs vls v of 
+        Nil -> lookup1 lvrs lvls v
+        _   -> lookup1 vrs vls v
+    _                -> List(val,link)
+  where
+    arg1 = calculate (headSExp link) vrs vls lvrs lvls
+    arg2 = calculate (headSExp . tailSExp $ link) vrs vls lvrs lvls
+
+testProgramProcedures = "(def x 10) (def y (* 10 10)) "
+testProgram = "* 10 y"
 testProgramVars = driverVars . parse . tokenize $ testProgramProcedures
 testProgramVals = driverVals . parse . tokenize $ testProgramProcedures
 testProgramSExp = parse . tokenize $ testProgram
-testCalculate = calculate testProgramSExp testProgramVars testProgramVals
+testLookup  = lookup1 testProgramVars testProgramVals 
+testCalculate = calculate testProgramSExp testProgramVars testProgramVals Nil Nil
 
--- (define sq (lambda (x) (* x x)))
+{-
+calculate:: SExp -> SExp -> SExp -> SExp -> SExp -> SExp
+calculate sxs vars vals lvars lvals = case sxs of 
+  List( Atom (N n),  l) -> List( Atom (N n), l)
+  List( List( Atom (W "lambda"), l1), l2) -> calculate  (headSExp . tailSExp $ l1) vars vals (headSExp l1) (mapCalculate l2 vars vals lvars lvals) 
+  List( Atom (W "true" ), l)  -> List( Atom (W "true"), l)
+  List( Atom (W "false"), l) -> List( Atom (W "false"), l)
+  List( Atom (W op), l) | op == "+"      -> addOp arg1 arg2
+                        | op == "-"      -> subOp arg1 arg2
+                        | op == "*"      -> mulOp arg1 arg2
+                        | op == "quote"  -> headSExp . tailSExp $ sxs 
+                        | op == "car"    -> carOp arg1
+                        | op == "cdr"    -> cdrOp arg1
+                        | op == "cons"   -> consOp arg1 arg2
+                        | op == "list"   -> mapCalculate (tailSExp sxs) vars vals lvars lvals
+                        | op == "cond"   -> condOp (tailSExp sxs) vars vals lvars lvals
+                        | op == "lambda" -> List( Atom (W op), l)
+                        | otherwise -> calculate (Atom (W op)) vars vals lvars lvals
+                        
+  Atom (W v) -> case lookup1 vars vals v of 
+      Nil ->  lookup1 lvars lvals v
+      _ ->    lookup1 vars vals v
+  a -> a
+  where
+    arg1 = calculate (headSExp . tailSExp $ sxs) vars vals lvars lvals
+    arg2 = calculate (headSExp . tailSExp . tailSExp $ sxs) vars vals lvars lvals
+
+
+-}
 
 getByNSExp:: SExp -> Integer -> SExp
 getByNSExp (List (v,_)) 0 = v
@@ -325,7 +355,7 @@ driverVars (List (v, l)) = consSExp (getByNSExp v 1) (driverVars l)
 driverVars Nil = Nil
 
 driverVals:: SExp -> SExp
-driverVals (List (v,l)) = consSExp (getByNSExp v 2) (driverVals l)
+driverVals (List (v,l)) = consSExp (calculate (getByNSExp v 2) Nil Nil Nil Nil) (driverVals l)
 driverVals Nil = Nil
 
 testEnv = "(def a 10) (def b 20) (def c 15)"
