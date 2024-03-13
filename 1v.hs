@@ -288,7 +288,15 @@ condOp (List(v,l)) vrs vls lvrs lvls
     result = calculate (headSExp . tailSExp $ v) vrs vls lvrs lvls
 
 calculate:: SExp -> SExp -> SExp -> SExp -> SExp -> SExp
-calculate (Atom v) _ _ _ _ = Atom v
+calculate (Atom (N n)) _ _ _ _ = Atom (N n)
+calculate (Atom (W s)) vrs vls lvrs lvls = case var of
+    Nil -> case lvar of
+        Nil -> Atom(W s)
+        lvar -> lvar
+    var -> var
+  where
+    var = lookup1 vrs vls s  
+    lvar = lookup1 lvrs lvls s 
 calculate Nil _ _ _ _ = Nil
 calculate (List (val,link)) vrs vls lvrs lvls = case calculate val vrs vls lvrs lvls of
     Atom(W "+")      -> addOp arg1 arg2
@@ -300,16 +308,14 @@ calculate (List (val,link)) vrs vls lvrs lvls = case calculate val vrs vls lvrs 
     Atom(W "cons")   -> consOp arg1 arg2
     Atom(W "list")   -> mapCalculate link vrs vls lvrs lvls
     Atom(W "cond")   -> condOp link vrs vls lvrs lvls
-    Atom(W v)        -> case lookup1 vrs vls v of 
-        Nil -> lookup1 lvrs lvls v
-        _   -> lookup1 vrs vls v
+    Atom(N v)        -> Atom(N v)
     _                -> List(val,link)
   where
     arg1 = calculate (headSExp link) vrs vls lvrs lvls
     arg2 = calculate (headSExp . tailSExp $ link) vrs vls lvrs lvls
 
-testProgramProcedures = "(def x 10) (def y (* 10 10)) "
-testProgram = "* 10 y"
+testProgramProcedures = "(def x 10) (def y (* 10 10))"
+testProgram = "+ y x"
 testProgramVars = driverVars . parse . tokenize $ testProgramProcedures
 testProgramVals = driverVals . parse . tokenize $ testProgramProcedures
 testProgramSExp = parse . tokenize $ testProgram
